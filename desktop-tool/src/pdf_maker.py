@@ -1,4 +1,4 @@
-import os
+import os, subprocess
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -100,6 +100,10 @@ class PdfExporter:
     def generate_pdf(self) -> None:
         pdf = FPDF("P", "in", (self.card_width_in_inches, self.card_height_in_inches))
         self.pdf = pdf
+        
+    def generate_pdf_a3(self) -> None:
+        pdf = FPDF(orientation='L', format='A3')
+        self.pdf = pdf
 
     def add_image(self, image_path: str) -> None:
         self.pdf.add_page()
@@ -109,7 +113,7 @@ class PdfExporter:
         extra = ""
         if self.separate_faces:
             extra = f"{self.current_face}/"
-        self.pdf.output(f"{self.save_path}{extra}{self.file_num}.pdf")
+        self.pdf.output(f"{self.save_path}{self.file_num}.pdf")
 
     def download_and_collect_images(self, post_processing_config: Optional[ImagePostProcessingConfig]) -> None:
         with ThreadPoolExecutor(max_workers=THREADS) as pool:
@@ -135,7 +139,9 @@ class PdfExporter:
         self.download_and_collect_images(post_processing_config=post_processing_config)
         if self.separate_faces:
             self.number_of_cards_per_file = 1
-            self.export_separate_faces()
+            self.prepare_images()
+            self.export_a3()
+            # self.export_separate_faces()
         else:
             self.export()
 
@@ -174,3 +180,202 @@ class PdfExporter:
                 self.save_file()
                 if face_index == 1:
                     self.file_num = self.file_num + 1
+    
+    def export_a3(self):
+        line_w = 0.14
+        line_lv = 297
+        line_lh = 440
+        image_w = 63
+        image_h = 88
+        top = 15
+        left = 20
+        gap = 0.5
+
+        # create pdf in a3 format
+        self.generate_pdf_a3()
+        self.add_a3_page()
+
+        i = 0        
+        # iterate over pages adding images
+        for slot in sorted(self.paths_by_slot.keys()):
+            image_paths_tuple = self.paths_by_slot[slot]
+            self.set_state(f"Working on slot {slot}")
+
+            if i > 0 and i % 18 == 0:
+                self.add_a3_page()
+
+            # calculate position relative to card index and position on a page
+            # page contains 3 rows of 6 cards
+            x = left + (i % 6) * image_w + (i % 6) * gap
+            y = top + int(i / 6 % 3) * image_h + int(i / 6 % 3) * gap
+            
+            # add image
+            self.pdf.image(
+                image_paths_tuple[1],
+                x=x,
+                y=y,
+                w=image_w,
+                h=image_h,
+            )
+            i += 1
+        # done adding pages and images
+        self.save_file()
+
+    def add_a3_page(self):
+        
+        line_w = 0.14
+        line_lv = 297
+        line_lh = 440
+        image_w = 63
+        image_h = 88
+        top = 15
+        left = 20
+        gap = 0.5
+
+
+        self.pdf.add_page()
+        # add page, add lines
+        # DRAW SIDE CUT LINES
+        # left
+        self.pdf.dashed_line(left - line_w, 0, left - line_w, line_lv, 1, 2)
+        # right
+        self.pdf.dashed_line(
+            left + (image_w * 6) + gap * 5 + 0.1,
+            0,
+            left + (image_w * 6) + gap * 5 + 0.1,
+            line_lv,
+            1,
+            2,
+        )
+        # top
+        self.pdf.dashed_line(0, top - line_w, line_lh, top - line_w, 1, 2)
+        # bottom
+        self.pdf.dashed_line(
+            0,
+            top + image_h * 3 + gap * 2 + 0.1,
+            line_lh,
+            top + image_h * 3 + gap * 2 + 0.1,
+            1,
+            2,
+        )
+    
+        # draw vertical lines between cards
+        for i in range(1, 6):
+            # draw 2 lines for easier cutting
+            self.pdf.dashed_line(
+                left + image_w * i + gap * (i-1) + 0.1,
+                0,
+                left + image_w * i + gap * (i-1) + 0.1,
+                line_lv,
+                1,
+                2,
+            )
+            self.pdf.dashed_line(
+                left + image_w * i + gap * (i-1) + gap - line_w,
+                0,
+                left + image_w * i + gap * (i-1) + gap - line_w,
+                line_lv,
+                1,
+                2,
+            )
+    
+        # draw horizontal lines between cards
+        for i in range(1, 3):
+            # draw 2 lines for easier cutting
+            self.pdf.dashed_line(
+                0, top + image_h * i + gap * (i-1) + 0.1, line_lh, top + image_h * i + gap * (i-1) + 0.1, 1, 2
+            )
+            self.pdf.dashed_line(
+                0,
+                top + image_h * i + gap * (i-1) + gap - line_w,
+                line_lh,
+                top + image_h * i + gap * (i-1) + gap - line_w,
+                1,
+                2,
+            )
+    # end add_a3_page
+                    
+    def prepare_images(self) -> None:
+        print('preparing images')
+        for slot in self.paths_by_slot.keys():
+            front_back_image_tuple = self.paths_by_slot[slot]
+            # convert image to jpg if it's not
+            jpeg_path = self.convert_to_jpg(front_back_image_tuple[1])
+            # re-set image back into paths
+            self.paths_by_slot[slot] = (front_back_image_tuple[0], jpeg_path)
+            
+            need_downsize = 0
+            need_reshape = 1
+            need_compression = 2
+            preparadness_check_result = self.images_havent_been_prepared(jpeg_path)
+            if (preparadness_check_result[need_compression]):
+                # compress before downsizing - it will preserve better quality
+                # compress image to reduce it's size
+                self.compress_image(jpeg_path)
+            if (preparadness_check_result[need_reshape]):
+                # cut sides of the image to reduce border size
+                self.cut_and_reshape(jpeg_path)
+            if (preparadness_check_result[need_downsize]):
+                # resize image to reduce it's size
+                self.downsize_image(jpeg_path)
+
+# convert image to jpg -- update the image name (stored)
+    def convert_to_jpg(self, image_path: str) -> None:
+        if image_path.endswith('jpg'):
+            return image_path
+        jpeg_path = self.new_jpg_path(image_path)
+        if os.path.exists(jpeg_path): # if jpg was previously processed and exists, skip ceation of jpg
+            return jpeg_path
+        print('converting to jpg')
+        command = f'magick "{image_path}" "{jpeg_path}"'
+        subprocess.run(command, shell=True, capture_output=False, text=False)
+        return jpeg_path
+
+    def new_jpg_path(self, image_path) -> None:
+        last_dot_index = image_path.rfind(".")
+        return image_path[:last_dot_index] + ".jpg"
+
+    def compress_image(self, jpeg_path: str) -> None:
+        print('compressing image')
+        command = f'magick "{jpeg_path}" -strip -interlace Plane -gaussian-blur 0.05 -quality 85% "{jpeg_path}"'
+        subprocess.run(command, shell=True, capture_output=False, text=False)
+
+    def downsize_image(self, jpeg_path: str) -> None:
+        print('resizint image')
+        command = f'mogrify -resize "60%" "{jpeg_path}"'
+        subprocess.run(command, shell=True, capture_output=False, text=False)
+       
+    def cut_and_reshape(self, jpeg_path: str) -> None:
+        print('cutting corners')
+        command = f'mogrify -shave "2.8%x2.8%" -gravity center -crop "63:88" "{jpeg_path}"'
+        subprocess.run(command, shell=True, capture_output=False, text=False)
+
+    def images_havent_been_prepared(self, jpeg_path):
+        command = f'identify -verbose "{jpeg_path}"'
+        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        output = str(result.stdout)
+        # print(output)
+        # if amount of pixels is too large - crop and downsize
+        output = output.splitlines()
+        need_downsize = True
+        need_reshape = True
+        need_compression = True
+        for line in output:
+            if "Geometry" in line:
+                w, h = line.strip().split(" ")[1].split("+")[0].split("x")
+                w = int(w)
+                h = int(h)
+                # check size is lower than large x and y - if not, downsize by certain percentage - calculate the percentage
+                if w < 1020 and h < 1500:
+                    need_downsize = False
+                # check shape is of certain relationship to each other, if not - need reshape
+                w_rel = round(w/63, 1)
+                h_rel = round(h/88, 1)
+                if w_rel == h_rel: 
+                    need_reshape = False
+            elif "Quality: " in line:
+                # check compression
+                quality = int(line.strip().split(" ")[1])
+                if quality <= 85:
+                    need_compression = False
+        return [need_downsize, need_reshape, need_compression]
