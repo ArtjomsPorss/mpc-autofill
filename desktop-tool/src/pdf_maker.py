@@ -357,25 +357,25 @@ class PdfExporter:
         # print(output)
         # if amount of pixels is too large - crop and downsize
         output = output.splitlines()
-        need_downsize = True
+        need_downsize = False
         need_reshape = True
-        need_compression = True
+        need_compression = False
         for line in output:
             if "Geometry" in line:
                 w, h = line.strip().split(" ")[1].split("+")[0].split("x")
                 w = int(w)
                 h = int(h)
                 # check size is lower than large x and y - if not, downsize by certain percentage - calculate the percentage
-                if w < 1020 and h < 1500:
-                    need_downsize = False
+                # if w < 1020 and h < 1500:
+                #     need_downsize = False
                 # check shape is of certain relationship to each other, if not - need reshape
                 w_rel = round(w/63, 1)
                 h_rel = round(h/88, 1)
                 if w_rel == h_rel: 
                     need_reshape = False
-            elif "Quality: " in line:
-                # check compression
-                quality = int(line.strip().split(" ")[1])
-                if quality <= 85:
-                    need_compression = False
+            # elif "Quality: " in line:
+            #     # check compression
+            #     quality = int(line.strip().split(" ")[1])
+            #     if quality <= 85:
+            #         need_compression = False
         return [need_downsize, need_reshape, need_compression]
