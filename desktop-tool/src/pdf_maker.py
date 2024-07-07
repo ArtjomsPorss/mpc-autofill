@@ -25,6 +25,7 @@ class PdfExporter:
     paths_by_slot: dict[int, tuple[str, str]] = attr.ib(default={})
     save_path: str = attr.ib(default="")
     separate_faces: bool = attr.ib(default=False)
+    print_default_cardback: bool = attr.ib(default=False)
     current_face: str = attr.ib(default="all")
     manager: enlighten.Manager = attr.ib(init=False, default=attr.Factory(enlighten.get_manager))
     status_bar: enlighten.StatusBar = attr.ib(init=False, default=False)
@@ -60,31 +61,29 @@ class PdfExporter:
             {
                 "type": "list",
                 "name": "split_faces",
-                "message": "Do you want the front and back of the cards in separate PDFs? (required for MPC).",
-                "default": 0,
+                "message": "Do you want to print fronts and backs of the cards?",
+                "default": 1,
                 "choices": [
-                    InquirerPy.base.control.Choice(False, name="No"),
                     InquirerPy.base.control.Choice(True, name="Yes"),
+                    InquirerPy.base.control.Choice(False, name="No")
                 ],
             },
             {
-                "type": "number",
-                "name": "cards_per_file",
-                "message": "How many cards should be included in the generated files? Note: The more cards per file, "
-                + "the longer the processing will take and the larger the file size will be.",
-                "default": 60,
-                "when": lambda result: result["split_faces"] is False,
-                "transformer": lambda result: 1 if (int_result := int(result)) < 1 else int_result,
-            },
+                "type": "list",
+                "name": "print_default_cardback",
+                "message": "Do you want to print default card back if card is not double sided?",
+                "default": 0,
+                "choices": [
+                    InquirerPy.base.control.Choice(False, name="No"),
+                    InquirerPy.base.control.Choice(True, name="Yes")
+                ]
+            }
         ]
         answers = InquirerPy.prompt(questions)
         if answers["split_faces"]:
             self.separate_faces = True
-            self.number_of_cards_per_file = 1
-        else:
-            self.number_of_cards_per_file = (
-                1 if (int_cards_per_file := int(answers["cards_per_file"])) < 1 else int_cards_per_file
-            )
+        if answers["print_default_cardback"]:
+            self.print_default_cardback = True
 
     def generate_file_path(self) -> None:
         basename = os.path.basename(str(self.order.name))
@@ -93,7 +92,7 @@ class PdfExporter:
         file_name = os.path.splitext(basename)[0]
         self.save_path = f"export/{file_name}/"
         os.makedirs(self.save_path, exist_ok=True)
-        if self.separate_faces:
+        if self.separate_faces: # TODO comment this out - not needed anymore
             for face in ["backs", "fronts"]:
                 os.makedirs(self.save_path + face, exist_ok=True)
 
@@ -117,13 +116,16 @@ class PdfExporter:
 
     def download_and_collect_images(self, post_processing_config: Optional[ImagePostProcessingConfig]) -> None:
         with ThreadPoolExecutor(max_workers=THREADS) as pool:
-            self.order.fronts.download_images(pool, self.download_bar, post_processing_config)
-            self.order.backs.download_images(pool, self.download_bar, post_processing_config)
+            self.order.fronts.download_images(pool, self.download_bar, post_processing_config, self.print_default_cardback)
+            self.order.backs.download_images(pool, self.download_bar, post_processing_config, self.print_default_cardback)
 
         backs_by_slots = {}
         for card in self.order.backs.cards:
             for slot in card.slots:
-                backs_by_slots[slot] = card.file_path
+                if card.defaultBack and not self.print_default_cardback:
+                    backs_by_slots[slot] = ''
+                else:
+                    backs_by_slots[slot] = card.file_path
 
         fronts_by_slots = {}
         for card in self.order.fronts.cards:
@@ -195,11 +197,7 @@ class PdfExporter:
         # create pdf in a3 format
         self.generate_pdf_a3()
         
-        # TODO if user has asked to print with backs, then print with backs, if not - only print fronts
-        # TODO split items into batches of 18 
-        # TODO for each batch, split into 2 lists of cards - fronts and backs
-        # TODO add fronts
-        # TODO if printing with backs - add a page and add backs
+        # split items into batches of 18 
         values_list = list(self.paths_by_slot.values())
 
         BATCH_SIZE = 18 # number of cards per page
@@ -229,11 +227,16 @@ class PdfExporter:
             # check if we are printing fronts and backs
             if self.separate_faces:
                 j = 0
+                # add another page for backs
                 self.add_a3_page(False)
                 # print backs
-                # TODO add another page
                 for image_paths_tuple in batch:
-                    # TODO add backs to new page
+                    # check if image is present, if it is - print it, otherwise - continue
+                    if image_paths_tuple[0] == '':
+                        j+=1
+                        continue
+
+                    # add backs to new page
                     # calculate position relative to card index and position on a page
                     # page contains 3 rows of 6 cards
                     # for back sides, they should be placed from right to left on the page
@@ -335,14 +338,21 @@ class PdfExporter:
         for slot in self.paths_by_slot.keys():
             front_back_image_tuple = self.paths_by_slot[slot]
             # convert image to jpg if it's not
-            jpeg_path = self.convert_to_jpg(front_back_image_tuple[1])
+            front_jpeg_path = self.convert_to_jpg(front_back_image_tuple[1])
+            back_jpeg_path = self.convert_to_jpg(front_back_image_tuple[0])
             # re-set image back into paths
-            self.paths_by_slot[slot] = (front_back_image_tuple[0], jpeg_path)
+            self.paths_by_slot[slot] = (back_jpeg_path, front_jpeg_path)
             
+            self.prepare_image(front_jpeg_path)
+            self.prepare_image(back_jpeg_path)
+            
+    def prepare_image(self, jpeg_path) -> None:        
             need_downsize = 0
             need_reshape = 1
             need_compression = 2
             downsize_percent = 3
+            if jpeg_path == '':
+                return
             preparadness_check_result = self.images_havent_been_prepared(jpeg_path)
             if (preparadness_check_result[need_compression]):
                 # compress before downsizing - it will preserve better quality
@@ -356,7 +366,9 @@ class PdfExporter:
                 self.downsize_image(jpeg_path, preparadness_check_result[downsize_percent])
 
 # convert image to jpg -- update the image name (stored)
-    def convert_to_jpg(self, image_path: str) -> None:
+    def convert_to_jpg(self, image_path: str) -> str:
+        if image_path == '':
+            return ''
         if image_path.endswith('jpg'):
             return image_path
         jpeg_path = self.new_jpg_path(image_path)

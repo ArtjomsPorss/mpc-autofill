@@ -36,6 +36,7 @@ class CardImage:
     downloaded: bool = attr.ib(init=False, default=False)
     uploaded: bool = attr.ib(init=False, default=False)
     errored: bool = attr.ib(init=False, default=False)
+    defaultBack: bool = attr.ib(default=False)
 
     # region file system interactions
 
@@ -130,20 +131,23 @@ class CardImage:
         queue: Queue["CardImage"],
         download_bar: enlighten.Counter,
         post_processing_config: Optional[ImagePostProcessingConfig],
+        print_default_back: bool
     ) -> None:
         try:
-            if not self.file_exists() and not self.errored and self.file_path is not None:
+            if not self.file_exists() and not self.errored and self.file_path is not None and (not self.defaultBack or self.defaultBack and print_default_back):
                 self.errored = not download_google_drive_file(
                     drive_id=self.drive_id, file_path=self.file_path, post_processing_config=post_processing_config
                 )
 
-            if self.file_exists() and not self.errored:
+                if self.file_exists() and not self.errored:
+                    self.downloaded = True
+                else:
+                    print(
+                        f"Failed to download '{bold(self.name)}' - allocated to slot/s {bold(self.slots)}.\n"
+                        f"Download link - {bold(f'https://drive.google.com/uc?id={self.drive_id}&export=download')}\n"
+                    )
+            elif self.defaultBack and not print_default_back:
                 self.downloaded = True
-            else:
-                print(
-                    f"Failed to download '{bold(self.name)}' - allocated to slot/s {bold(self.slots)}.\n"
-                    f"Download link - {bold(f'https://drive.google.com/uc?id={self.drive_id}&export=download')}\n"
-                )
         except Exception as e:
             # note: python threads die silently if they encounter an exception. if an exception does occur,
             # log it, but still put the card onto the queue so the main thread doesn't spin its wheels forever waiting.
@@ -205,7 +209,7 @@ class CardImageCollection:
             missing_slots = card_image_collection.all_slots() - card_image_collection.slots()
             if missing_slots:
                 card_image_collection.cards.append(
-                    CardImage(drive_id=fill_image_id.strip(' "'), slots=list(missing_slots))
+                    CardImage(drive_id=fill_image_id.strip(' "'), slots=list(missing_slots), defaultBack=True)
                 )
 
         # postponing validation from post-init so we don't error for missing slots that `fill_image_id` would fill
@@ -221,13 +225,14 @@ class CardImageCollection:
         pool: ThreadPoolExecutor,
         download_bar: enlighten.Counter,
         post_processing_config: Optional[ImagePostProcessingConfig],
+        print_default_back: bool
     ) -> None:
         """
         Set up the provided ThreadPoolExecutor to download this collection's images, updating the given progress
         bar with each image. Async function.
         """
 
-        pool.map(lambda x: x.download_image(self.queue, download_bar, post_processing_config), self.cards)
+        pool.map(lambda x: x.download_image(self.queue, download_bar, post_processing_config, print_default_back), self.cards)
 
     # endregion
 
