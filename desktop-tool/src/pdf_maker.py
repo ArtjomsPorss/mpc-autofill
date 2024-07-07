@@ -187,8 +187,8 @@ class PdfExporter:
         image_w = 63
         image_h = 88
         top = 15
-        left = 20
-        gap = 0.5
+        left = 18.5
+        gap = 1
         pw = 420
         ph = 297
 
@@ -237,7 +237,7 @@ class PdfExporter:
                     # calculate position relative to card index and position on a page
                     # page contains 3 rows of 6 cards
                     # for back sides, they should be placed from right to left on the page
-                    x = pw - (left + (j % (6 + 1)) * image_w + (j % (6 + 1)) * gap)
+                    x = pw - (left + (j % (6)) * image_w + (j % (6)) * gap) - image_w
                     y = top + int(j / 6 % 3) * image_h + int(j / 6 % 3) * gap
                  
                     # add image
@@ -261,8 +261,10 @@ class PdfExporter:
         image_w = 63
         image_h = 88
         top = 15
-        left = 20
-        gap = 0.5
+        left = 18.5
+        gap = 1
+        
+        draw_lines = True
 
         # add page 
         self.pdf.add_page()
