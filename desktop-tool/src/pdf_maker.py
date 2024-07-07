@@ -102,7 +102,7 @@ class PdfExporter:
         self.pdf = pdf
         
     def generate_pdf_a3(self) -> None:
-        pdf = FPDF(orientation='L', format='A3')
+        pdf = FPDF(orientation='L', format='a3')
         self.pdf = pdf
 
     def add_image(self, image_path: str) -> None:
@@ -137,14 +137,15 @@ class PdfExporter:
 
     def execute(self, post_processing_config: Optional[ImagePostProcessingConfig]) -> None:
         self.download_and_collect_images(post_processing_config=post_processing_config)
-        if self.separate_faces:
-            self.number_of_cards_per_file = 1
-            self.prepare_images()
-            self.export_a3()
+        # if self.separate_faces:
+        #    self.number_of_cards_per_file = 1
+        #     self.prepare_images()
+        #    self.export_a3()
             # self.export_separate_faces()
-        else:
-            self.export()
-
+        # else:
+        #    self.export()
+        self.prepare_images()   
+        self.export_a3()         
         print(f"Finished exporting files! They should be accessible at {self.save_path}.")
 
     def export(self) -> None:
@@ -183,116 +184,148 @@ class PdfExporter:
     
     def export_a3(self):
         line_w = 0.14
-        line_lv = 297
-        line_lh = 440
         image_w = 63
         image_h = 88
         top = 15
         left = 20
         gap = 0.5
+        pw = 420
+        ph = 297
 
         # create pdf in a3 format
         self.generate_pdf_a3()
-        self.add_a3_page()
+        
+        # TODO if user has asked to print with backs, then print with backs, if not - only print fronts
+        # TODO split items into batches of 18 
+        # TODO for each batch, split into 2 lists of cards - fronts and backs
+        # TODO add fronts
+        # TODO if printing with backs - add a page and add backs
+        values_list = list(self.paths_by_slot.values())
 
-        i = 0        
-        # iterate over pages adding images
-        for slot in sorted(self.paths_by_slot.keys()):
-            image_paths_tuple = self.paths_by_slot[slot]
-            self.set_state(f"Working on slot {slot}")
+        BATCH_SIZE = 18 # number of cards per page
+        # get batches of 18 cards. card is a tuple containing back + front imagepath
+        batches = [values_list[i:i + BATCH_SIZE] for i in range(0, len(values_list), BATCH_SIZE)]
 
-            if i > 0 and i % 18 == 0:
-                self.add_a3_page()
-
-            # calculate position relative to card index and position on a page
-            # page contains 3 rows of 6 cards
-            x = left + (i % 6) * image_w + (i % 6) * gap
-            y = top + int(i / 6 % 3) * image_h + int(i / 6 % 3) * gap
+        for batch in batches:
+            self.add_a3_page(True)
+            i = 0
+            # print fronts in the batch
+            for image_paths_tuple in batch:
+               # calculate position relative to card index and position on a page
+               # page contains 3 rows of 6 cards
+               x = left + (i % 6) * image_w + (i % 6) * gap
+               y = top + int(i / 6 % 3) * image_h + int(i / 6 % 3) * gap
             
-            # add image
-            self.pdf.image(
-                image_paths_tuple[1],
-                x=x,
-                y=y,
-                w=image_w,
-                h=image_h,
-            )
-            i += 1
+               # add image
+               self.pdf.image(
+                   image_paths_tuple[1],
+                   x=x,
+                   y=y,
+                   w=image_w,
+                   h=image_h,
+               )
+               i += 1
+            
+            # check if we are printing fronts and backs
+            if self.separate_faces:
+                j = 0
+                self.add_a3_page(False)
+                # print backs
+                # TODO add another page
+                for image_paths_tuple in batch:
+                    # TODO add backs to new page
+                    # calculate position relative to card index and position on a page
+                    # page contains 3 rows of 6 cards
+                    # for back sides, they should be placed from right to left on the page
+                    x = pw - (left + (j % (6 + 1)) * image_w + (j % (6 + 1)) * gap)
+                    y = top + int(j / 6 % 3) * image_h + int(j / 6 % 3) * gap
+                 
+                    # add image
+                    self.pdf.image(
+                        image_paths_tuple[0],
+                        x=x,
+                        y=y,
+                        w=image_w,
+                        h=image_h,
+                    )
+                    j += 1
+
         # done adding pages and images
         self.save_file()
 
-    def add_a3_page(self):
+    def add_a3_page(self, draw_lines: bool):
         
         line_w = 0.14
         line_lv = 297
-        line_lh = 440
+        line_lh = 420
         image_w = 63
         image_h = 88
         top = 15
         left = 20
         gap = 0.5
 
-
+        # add page 
         self.pdf.add_page()
-        # add page, add lines
-        # DRAW SIDE CUT LINES
-        # left
-        self.pdf.dashed_line(left - line_w, 0, left - line_w, line_lv, 1, 2)
-        # right
-        self.pdf.dashed_line(
-            left + (image_w * 6) + gap * 5 + 0.1,
-            0,
-            left + (image_w * 6) + gap * 5 + 0.1,
-            line_lv,
-            1,
-            2,
-        )
-        # top
-        self.pdf.dashed_line(0, top - line_w, line_lh, top - line_w, 1, 2)
-        # bottom
-        self.pdf.dashed_line(
-            0,
-            top + image_h * 3 + gap * 2 + 0.1,
-            line_lh,
-            top + image_h * 3 + gap * 2 + 0.1,
-            1,
-            2,
-        )
-    
-        # draw vertical lines between cards
-        for i in range(1, 6):
-            # draw 2 lines for easier cutting
+        if draw_lines:
+            # add lines
+            # DRAW SIDE CUT LINES
+            # left
+            self.pdf.dashed_line(left - line_w, 0, left - line_w, line_lv, 1, 2)
+            # right
             self.pdf.dashed_line(
-                left + image_w * i + gap * (i-1) + 0.1,
+                left + (image_w * 6) + gap * 5 + 0.1,
                 0,
-                left + image_w * i + gap * (i-1) + 0.1,
+                left + (image_w * 6) + gap * 5 + 0.1,
                 line_lv,
                 1,
                 2,
             )
-            self.pdf.dashed_line(
-                left + image_w * i + gap * (i-1) + gap - line_w,
-                0,
-                left + image_w * i + gap * (i-1) + gap - line_w,
-                line_lv,
-                1,
-                2,
-            )
-    
-        # draw horizontal lines between cards
-        for i in range(1, 3):
-            # draw 2 lines for easier cutting
-            self.pdf.dashed_line(
-                0, top + image_h * i + gap * (i-1) + 0.1, line_lh, top + image_h * i + gap * (i-1) + 0.1, 1, 2
-            )
+            # top
+            self.pdf.dashed_line(0, top - line_w, line_lh, top - line_w, 1, 2)
+            # bottom
             self.pdf.dashed_line(
                 0,
-                top + image_h * i + gap * (i-1) + gap - line_w,
+                top + image_h * 3 + gap * 2 + 0.1,
                 line_lh,
-                top + image_h * i + gap * (i-1) + gap - line_w,
+                top + image_h * 3 + gap * 2 + 0.1,
                 1,
                 2,
             )
+        
+            # draw vertical lines between cards
+            for i in range(1, 6):
+                # draw 2 lines for easier cutting
+                self.pdf.dashed_line(
+                    left + image_w * i + gap * (i-1) + 0.1,
+                    0,
+                    left + image_w * i + gap * (i-1) + 0.1,
+                    line_lv,
+                    1,
+                    2,
+                )
+                self.pdf.dashed_line(
+                    left + image_w * i + gap * (i-1) + gap - line_w,
+                    0,
+                    left + image_w * i + gap * (i-1) + gap - line_w,
+                    line_lv,
+                    1,
+                    2,
+                )
+        
+            # draw horizontal lines between cards
+            for i in range(1, 3):
+                # draw 2 lines for easier cutting
+                self.pdf.dashed_line(
+                    0, top + image_h * i + gap * (i-1) + 0.1, line_lh, top + image_h * i + gap * (i-1) + 0.1, 1, 2
+                )
+                self.pdf.dashed_line(
+                    0,
+                    top + image_h * i + gap * (i-1) + gap - line_w,
+                    line_lh,
+                    top + image_h * i + gap * (i-1) + gap - line_w,
+                    1,
+                    2,
+                )
     # end add_a3_page
                     
     def prepare_images(self) -> None:
@@ -307,6 +340,7 @@ class PdfExporter:
             need_downsize = 0
             need_reshape = 1
             need_compression = 2
+            downsize_percent = 3
             preparadness_check_result = self.images_havent_been_prepared(jpeg_path)
             if (preparadness_check_result[need_compression]):
                 # compress before downsizing - it will preserve better quality
@@ -317,7 +351,7 @@ class PdfExporter:
                 self.cut_and_reshape(jpeg_path)
             if (preparadness_check_result[need_downsize]):
                 # resize image to reduce it's size
-                self.downsize_image(jpeg_path)
+                self.downsize_image(jpeg_path, preparadness_check_result[downsize_percent])
 
 # convert image to jpg -- update the image name (stored)
     def convert_to_jpg(self, image_path: str) -> None:
@@ -340,9 +374,9 @@ class PdfExporter:
         command = f'magick "{jpeg_path}" -strip -interlace Plane -gaussian-blur 0.05 -quality 85% "{jpeg_path}"'
         subprocess.run(command, shell=True, capture_output=False, text=False)
 
-    def downsize_image(self, jpeg_path: str) -> None:
-        print('resizint image')
-        command = f'mogrify -resize "60%" "{jpeg_path}"'
+    def downsize_image(self, jpeg_path: str, percent:int) -> None:
+        print('resizing image')
+        command = f'mogrify -resize "{percent}%" "{jpeg_path}"'
         subprocess.run(command, shell=True, capture_output=False, text=False)
        
     def cut_and_reshape(self, jpeg_path: str) -> None:
@@ -357,25 +391,28 @@ class PdfExporter:
         # print(output)
         # if amount of pixels is too large - crop and downsize
         output = output.splitlines()
-        need_downsize = True
+        need_downsize = False
         need_reshape = True
-        need_compression = True
+        need_compression = False
+        downsize_pcnt = 0
         for line in output:
             if "Geometry" in line:
                 w, h = line.strip().split(" ")[1].split("+")[0].split("x")
                 w = int(w)
                 h = int(h)
                 # check size is lower than large x and y - if not, downsize by certain percentage - calculate the percentage
-                if w < 1020 and h < 1500:
-                    need_downsize = False
+                # if w < 1030 and h < 1440:
+                    # need_downsize = False
+                # else:
+                #     downsize_pcnt = int(1003 / w * 100) # calculate downsize percentage
                 # check shape is of certain relationship to each other, if not - need reshape
-                w_rel = round(w/63, 1)
-                h_rel = round(h/88, 1)
+                w_rel = round(w/63, 0)
+                h_rel = round(h/88, 0)
                 if w_rel == h_rel: 
                     need_reshape = False
             elif "Quality: " in line:
                 # check compression
                 quality = int(line.strip().split(" ")[1])
-                if quality <= 85:
-                    need_compression = False
-        return [need_downsize, need_reshape, need_compression]
+                # if quality > 85:
+                #    need_compression = True
+        return [need_downsize, need_reshape, need_compression, downsize_pcnt]
