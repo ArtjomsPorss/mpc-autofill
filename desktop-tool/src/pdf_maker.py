@@ -12,6 +12,15 @@ from src.order import CardOrder
 from src.processing import ImagePostProcessingConfig
 from src.utils import bold
 
+line_w = 0.14
+image_w = 63
+image_h = 88
+top = 9
+left = 9.5
+gap = 5
+line_lv = 297
+line_lh = 420
+
 
 @attr.s
 class PdfExporter:
@@ -185,15 +194,7 @@ class PdfExporter:
                     self.file_num = self.file_num + 1
     
     def export_a3(self):
-        line_w = 0.14
-        image_w = 63
-        image_h = 88
-        top = 15
-        left = 18.5
-        gap = 1
-        pw = 420
-        ph = 297
-
+        
         # create pdf in a3 format
         self.generate_pdf_a3()
         
@@ -224,12 +225,12 @@ class PdfExporter:
                )
                i += 1
             
-            # check if we are printing fronts and backs
+            # CHECK IF WE ARE PRINTING FRONTS AND BACKS
             if self.separate_faces:
                 j = 0
                 # add another page for backs
                 self.add_a3_page(False)
-                # print backs
+                # PRINT BACKS
                 for image_paths_tuple in batch:
                     # check if image is present, if it is - print it, otherwise - continue
                     if image_paths_tuple[0] == '':
@@ -240,7 +241,7 @@ class PdfExporter:
                     # calculate position relative to card index and position on a page
                     # page contains 3 rows of 6 cards
                     # for back sides, they should be placed from right to left on the page
-                    x = pw - (left + (j % (6)) * image_w + (j % (6)) * gap) - image_w
+                    x = line_lh - (left + (j % (6)) * image_w + (j % (6)) * gap) - image_w
                     y = top + int(j / 6 % 3) * image_h + int(j / 6 % 3) * gap
                  
                     # add image
@@ -257,16 +258,7 @@ class PdfExporter:
         self.save_file()
 
     def add_a3_page(self, draw_lines: bool):
-        
-        line_w = 0.14
-        line_lv = 297
-        line_lh = 420
-        image_w = 63
-        image_h = 88
-        top = 15
-        left = 18.5
-        gap = 1
-        
+       
         draw_lines = True
 
         # add page 
@@ -344,7 +336,7 @@ class PdfExporter:
             self.paths_by_slot[slot] = (back_jpeg_path, front_jpeg_path)
             
             self.prepare_image(front_jpeg_path)
-            self.prepare_image(back_jpeg_path)
+            # self.prepare_image(back_jpeg_path)
             
     def prepare_image(self, jpeg_path) -> None:        
             need_downsize = 0
