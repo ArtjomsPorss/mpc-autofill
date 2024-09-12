@@ -16,10 +16,18 @@ line_w = 0.14
 image_w = 63
 image_h = 88
 top = 9
-left = 9.5
-gap = 5
+left = 6
+gap = 6
 line_lv = 297
 line_lh = 420
+
+
+image_b_w = 67
+image_b_h = 94
+top_b = 5.8
+left_b = 4
+gap_b_v = 0
+gap_b_h = 2
 
 
 @attr.s
@@ -225,6 +233,13 @@ class PdfExporter:
                )
                i += 1
             
+
+            # image_b_w = 67
+            # image_b_h = 94
+            # top_b = 1
+            # left_b = 1
+            # gap_b = 1
+
             # CHECK IF WE ARE PRINTING FRONTS AND BACKS
             if self.separate_faces:
                 j = 0
@@ -241,16 +256,16 @@ class PdfExporter:
                     # calculate position relative to card index and position on a page
                     # page contains 3 rows of 6 cards
                     # for back sides, they should be placed from right to left on the page
-                    x = line_lh - (left + (j % (6)) * image_w + (j % (6)) * gap) - image_w
-                    y = top + int(j / 6 % 3) * image_h + int(j / 6 % 3) * gap
+                    x = line_lh - (left_b + (j % (6)) * image_b_w + (j % (6)) * gap_b_h) - image_b_w
+                    y = top_b + int(j / 6 % 3) * image_b_h + int(j / 6 % 3) * gap_b_v
                  
                     # add image
                     self.pdf.image(
                         image_paths_tuple[0],
                         x=x,
                         y=y,
-                        w=image_w,
-                        h=image_h,
+                        w=image_b_w,
+                        h=image_b_h,
                     )
                     j += 1
 
